@@ -1,0 +1,17 @@
+playground/
+
+# administrative
+*.key
+
+# cluster
+**slurm**
+sshfs_ri/
+
+# data
+*.pkl
+logs/
+archive/
+
+# cache
+._*
+__pycache__/

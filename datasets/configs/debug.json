@@ -1,0 +1,13 @@
+{
+  "mode": "create",
+  "config": null,
+  "name": "debug",
+  "tasks": "datasets/custom_tasks/debug.json",
+  "dataset": null,
+  "task_args": [],
+  "seed": 98715,
+  "trial_len": 150,
+  "scale": 10,
+  "n_trials": 4000,
+  "argv": "skills.py create -n debug -t datasets/custom_tasks/debug.json"
+}
