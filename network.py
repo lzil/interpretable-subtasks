@@ -25,10 +25,6 @@ class TorchSeed:
 
 
 DEFAULT_ARGS = {
-    'N': 100,    # recurrent units
-    'S': 10,     # skill units
-    'Z': 10,     # output units
-    'D': 5,
 
     'rnn_burn_steps': 100,
     'rnn_noise': 0,
@@ -50,7 +46,6 @@ class TwoStageRNN(nn.Module):
         super().__init__()
         self.args = update_config(DEFAULT_ARGS, args)
 
-        self.tau_x = 5
         self.rnn_activation = torch.tanh
 
         self._init_vars()
@@ -62,15 +57,15 @@ class TwoStageRNN(nn.Module):
 
         self.stage1_params = {
             'N': 100,
-            'S': 22,
-            'Z': 5,
+            'D_in': 22,
+            'D_out': 5,
             'tau': 10
         }
         self.stage1 = RNN(self.stage1_params)
         self.stage2_params = {
             'N': 200,
-            'S': 5,
-            'Z': 3,
+            'D_in': 7,
+            'D_out': 3,
             'tau': 5
         }
         self.stage2 = RNN(self.stage2_params)
@@ -81,14 +76,26 @@ class TwoStageRNN(nn.Module):
 
     def forward(self, inp=None, extras=False):
 
+        # pdb.set_trace()
+        t = inp[:, 2:]
+        s = inp[:, :2]
+
+        inp1 = torch.cat((t, s), dim=1)
+        # pdb.set_trace()
         if extras:
             v, etc1 = self.stage1(inp, extras=True)
-            z, etc2 = self.stage2(v, extras=True)
-            etc = {'u': inp.detach(), 'v': v.detach(), 'x1': etc1['x'], 'x2': etc2['x']}
+            # pdb.set_trace()
+            v2 = torch.softmax(v, dim=0)
+            inp2 = torch.cat((v2, s), dim=1)
+            z, etc2 = self.stage2(inp2, extras=True)
+            etc = {'u': inp, 'v': v, 'v2': v2, 'x1': etc1['x'], 'x2': etc2['x']}
             return z, etc
         else:
-            v = self.stage1(inp, extras=False)
-            z = self.stage2(v, extras=False)
+            v = self.stage1(inp1, extras=False)
+            # inp2 = torch.cat((v, s), dim=1)
+            v2 = torch.softmax(v, dim=0)
+            inp2 = torch.cat((v2, s), dim=1)
+            z = self.stage2(inp2, extras=False)
             return z
 
     def reset(self, *args, **kwargs):
@@ -130,8 +137,8 @@ class RNN(nn.Module):
 
         # layers use the same seed because no resevoirs here
         with TorchSeed(self.args.rnn_seed):
-            self.W_ri = nn.Linear(self.args.S, self.args.N, bias=False)
-            self.W_ro = nn.Linear(self.args.N, self.args.Z, bias=False)
+            self.W_ri = nn.Linear(self.args.D_in, self.args.N, bias=False)
+            self.W_ro = nn.Linear(self.args.N, self.args.D_out, bias=False)
             self.J = nn.Linear(self.args.N, self.args.N, bias=self.args.rnn_bias)
             torch.nn.init.normal_(self.J.weight.data, std=1.5/np.sqrt(self.args.N))
 
@@ -149,12 +156,12 @@ class RNN(nn.Module):
             self.load_state_dict(torch.load(self.args.rnn_path))
 
 
-    def forward(self, s=None, extras=False):
+    def forward(self, inp=None, extras=False):
         # pass through the forward part
         # u is input
         u = torch.zeros(self.args.N)
-        if s is not None:
-            u = u + self.W_ri(s)
+        if inp is not None:
+            u = u + self.W_ri(inp)
 
         # rnn forward
         a = self.rnn_activation(self.J(self.x) + u)
@@ -180,7 +187,7 @@ class RNN(nn.Module):
         self.x.detach_()
 
     def reset(self, rnn_state=None, burn_in=True, device=None):
-        self.z = torch.zeros((1, self.args.Z))
+        self.z = torch.zeros((1, self.args.D_out))
         '''
         guide to rnn x states:
         self.x shouuld be size [self.args.batch_size, self.args.N]

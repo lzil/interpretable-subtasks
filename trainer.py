@@ -112,6 +112,7 @@ class Trainer:
         k_loss = 0.
         outs = []
         us = []
+        vs = []
         # setting up k for t-BPTT
         if training and self.args.k != 0:
             k = self.args.k
@@ -123,17 +124,28 @@ class Trainer:
             net_out, etc = self.net(inp=net_s, extras=True)
             outs.append(net_out)
             us.append(etc['u'])
+            vs.append(etc['v'])
             # t-BPTT with parameter k
             if (j+1) % k == 0:
                 # the first timestep with which to do BPTT
                 k_outs = torch.stack(outs[-k:], dim=2)
                 k_targets = y[:,:,j+1-k:j+1]
+                k_vs = torch.stack(vs[-k:], dim=2)
+
+                # pdb.set_trace()
+
+                # v_loss = self.args.lambda2 * torch.mean(torch.abs(k_vs))
+                v_loss = 0
+
                 for c in self.criteria:
                     k_loss += c(k_outs, k_targets, i=trial, t_ix=j+1-k)
-                trial_loss += k_loss.detach().item()
+
+                loss = k_loss + v_loss
+                # print(k_loss.detach(), v_loss.detach())
+                trial_loss += loss.detach().item()
                 if training:
-                    k_loss.backward()
-                k_loss = 0.
+                    loss.backward()
+                loss = 0.
                 # TODO fix this
                 self.net.stage1.x = self.net.stage1.x.detach()
                 self.net.stage2.x = self.net.stage2.x.detach()

@@ -4,6 +4,7 @@ from scipy.stats import norm
 # from sklearn.gaussian_process.kernels import RBF, Matern, WhiteKernel
 import pickle
 import os
+import copy
 import sys
 import json
 import pdb
@@ -45,17 +46,19 @@ tasks
 
 # stores task data
 class TaskTrial:
-    def __init__(self, task_id, task_dict, sensory_data, target_data, dset_id=None, n=None):
+    def __init__(self, task_id, task_dict, n_tasks, sensory_data, target_data, dset_id=None, n=None):
         # self.trial_len = trial_len
         self.dset_id = dset_id
         self.n = n
 
-        self.task_id = task_id
         self.s_ids = task_dict['ids']
         self.s_starts = task_dict['starts']
         self.s_ends = task_dict['ends']
         self.sensory_data = sensory_data
         self.target_data = target_data
+
+        self.task_id = task_id
+        self.n_tasks_init = n_tasks
 
         self.sensory_dim = sensory_data.shape[0]
         self.trial_len = sensory_data.shape[1]
@@ -64,13 +67,19 @@ class TaskTrial:
         # assert len(s_starts) == len(s_ends)
 
 
-    def get_task(self, task_count, x_noise=0):
+    def get_task(self, task_count=None, x_noise=0):
+        if task_count is None:
+            task_count = self.n_tasks_init
         x = np.zeros((self.sensory_dim+task_count, self.trial_len))
         x[:self.sensory_dim] = self.sensory_data
         x[self.sensory_dim+self.task_id, self.s_starts[0]:self.s_ends[-1]] = 1
         # noisy up/down corruption
         if x_noise != 0:
             x = corrupt_x(x, x_noise)
+        return x
+
+    def get_sensory_data(self):
+        x = copy.deepcopy(self.sensory_data)
         return x
 
     def get_subtasks(self, subtask_count):
@@ -89,63 +98,26 @@ def corrupt_x(x, x_noise):
     return x
 
 
+### FOR CREATING TASKSETS
 
-# helper function that will add some random data to sensory and target arrays from the basic task list
-def add_basic_subtasks(sensory_arr, target_arr, s_ids, s_starts, s_ends):
-    cur_mem = [0, 0]
-    for i in range(len(s_ids)):
-        s_id = s_ids[i]
-        s_start = s_starts[i]
-        s_end = s_ends[i]
-
-        angle = np.random.uniform(2*np.pi)
-        sin = np.sin(angle)
-        cos = np.cos(angle)
-
-        # input is relevant
-        if s_id == 0 or s_id == 1:
-            sensory_arr[0, s_start:s_end] = sin
-            sensory_arr[1, s_start:s_end] = cos
-
-            # output the input
-            if s_id == 0:
-                target_arr[0, s_start:s_end] = sin
-                target_arr[1, s_start:s_end] = cos
-
-            # remember the input
-            if s_id == 1:
-                cur_mem = [sin, cos]
-        
-        if s_id == 2:
-            target_arr[0, s_start:s_end] = cur_mem[0]
-            target_arr[1, s_start:s_end] = cur_mem[1]
-
-        if s_id == 3:
-            cur_mem = [-cur_mem[0], -cur_mem[1]]
-
-        if s_id == 4:
-            target_arr[2, s_start:s_end] = 1
-
-    return sensory_arr, target_arr
-
-# sample a length for a subtask
+# sample a length for a subtask. used when creating a task
 def draw_subtask_length(s_id):
     if s_id == 0:
         # copy sensory input to output
-        trial_len = min(10 + np.random.exponential(5), 30)
+        st_len = min(10 + np.random.exponential(5), 30)
     elif s_id == 1:
         # story sensory input
-        trial_len = min(10 + np.random.exponential(5), 30)
+        st_len = min(10 + np.random.exponential(5), 30)
     elif s_id == 2:
         # output stored memory
-        trial_len = min(10 + np.random.exponential(5), 30)
+        st_len = min(10 + np.random.exponential(5), 30)
     elif s_id == 3:
         # flip memory
-        trial_len = 10
+        st_len = 10
     elif s_id == 4:
         # toggle binary button
-        trial_len = 10
-    return trial_len
+        st_len = 10
+    return st_len
 
 # create a task with spaced intervals and subtask lengths
 def create_task(s_ids, args):
@@ -153,6 +125,7 @@ def create_task(s_ids, args):
     s_ends = []
     s_start = 0
 
+    # cur s_end
     s_end = 0
 
     for i in range(len(s_ids)):
@@ -195,10 +168,46 @@ def create_taskset(args):
         task_id += 1
     return taskset
 
-# create a TaskTrial by initializing sensory and target data and adding time padding based on desired length
-def create_tasktrial(task_id, task_dict, args):
-    
-    return trial
+
+### FOR CREATING DATASETS
+
+# helper function that will add some random data to sensory and target arrays from the basic task list
+def add_basic_subtasks(sensory_arr, target_arr, s_ids, s_starts, s_ends):
+    cur_mem = [0, 0]
+    for i in range(len(s_ids)):
+        s_id = s_ids[i]
+        s_start = s_starts[i]
+        s_end = s_ends[i]
+
+        angle = np.random.uniform(2*np.pi)
+        sin = np.sin(angle)
+        cos = np.cos(angle)
+
+        # input is relevant
+        if s_id == 0 or s_id == 1:
+            sensory_arr[0, s_start:s_end] = sin
+            sensory_arr[1, s_start:s_end] = cos
+
+            # output the input
+            if s_id == 0:
+                target_arr[0, s_start:s_end] = sin
+                target_arr[1, s_start:s_end] = cos
+
+            # remember the input
+            if s_id == 1:
+                cur_mem = [sin, cos]
+        
+        if s_id == 2:
+            target_arr[0, s_start:s_end] = cur_mem[0]
+            target_arr[1, s_start:s_end] = cur_mem[1]
+
+        if s_id == 3:
+            cur_mem = [-cur_mem[0], -cur_mem[1]]
+
+        if s_id == 4:
+            target_arr[2, s_start:s_end] = 1
+
+    return sensory_arr, target_arr
 
 # create a set of trials based on a list of tasks
 def create_dataset(args):
@@ -208,6 +217,7 @@ def create_dataset(args):
 
     taskset = json.load(open(args.tasks, 'r'))['tasks']
     n_tasks = len(taskset)
+    args.n_tasks = n_tasks
 
     trials = []
     for j in range(args.n_trials):
@@ -239,10 +249,13 @@ def create_dataset(args):
             'starts': s_starts,
             'ends': s_ends
         }
-        trial = TaskTrial(task_id, new_task_dict, sensory_data, target_data, dset_id=args.name, n=j)
+        trial = TaskTrial(task_id, new_task_dict, n_tasks, sensory_data, target_data, dset_id=args.name, n=j)
         trials.append(trial)
 
     return trials, args
+
+
+### GENERAL TASKS.PY FUNCTIONS
 
 # turn task_args argument into usable argument variables
 # lots of defaults are written down here
@@ -250,9 +263,12 @@ def get_task_args(args):
     tarr = args.task_args
     targs = Bunch()
 
-    if args.mode == 'tasks' or args.mode == 'trials':
+    if args.mode == 'tasks':
         targs.trial_len = get_tval(tarr, 'len', 150, int)
         targs.scale = get_tval(tarr, 'scale', 5, int)
+
+    elif args.mode == 'trials':
+        targs.trial_len = get_tval(tarr, 'len', 150, int)
         targs.n_trials = get_tval(tarr, 'n', 4000, int)
 
     return targs
@@ -279,12 +295,12 @@ def save_taskset(tset, name, config=None):
 
 def save_dataset(dset, name, config=None):
     fname = os.path.join('datasets', name + '.pkl')
+    dset_dict = {
+        'data': dset,
+        'config': config.to_dict()
+    }
     with open(fname, 'wb') as f:
-        pickle.dump(dset, f)
-    gname = os.path.join('datasets', 'configs', name + '.json')
-    if config is not None:
-        with open(gname, 'w') as f:
-            json.dump(config.to_dict(), f, indent=2)
+        pickle.dump(dset_dict, f)
 
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
@@ -293,7 +309,7 @@ if __name__ == '__main__':
 
     ap.add_argument('-n', '--name', default='debug', help='name for creation')
     ap.add_argument('--subtasks', help='path to json list of subtask sequences')
-    ap.add_argument('--tasks', help='path to json list of tasks, built from subtask sequences')
+    ap.add_argument('-t', '--tasks', help='path to json list of tasks, built from subtask sequences')
     ap.add_argument('-d', '--dataset', help='dataset path for loading')
 
     # task-specific arguments
@@ -318,7 +334,7 @@ if __name__ == '__main__':
     # pdb.set_trace()
 
     if args.mode == 'tasks':
-        # create and save a dataset
+        # create and save a taskset
         tset = create_taskset(args)
         save_taskset(tset, args.name, config=None)
     elif args.mode == 'trials':
@@ -328,25 +344,30 @@ if __name__ == '__main__':
     elif args.mode == 'load':
         
         # visualize a dataset
-        dset = load_rb(args.dataset)
+        dset = load_rb(args.dataset)['data']
         xr = np.arange(dset[0].trial_len)
+        n_tasks = dset[0].n_tasks_init
 
         samples = random.sample(dset, 12)
-        fig, ax = plt.subplots(3,4,sharex=True, sharey=True, figsize=(14, 8))
+        fig, ax = plt.subplots(3,4,sharex=True, sharey=True, figsize=(14, 6))
         for i, ax in enumerate(fig.axes):
 
             fig_format.hide_frame(ax)
 
             trial = samples[i]
-            trial_x = trial.get_task(20)
+            trial_x = trial.get_sensory_data()
+            trial_task = np.zeros([1, trial.trial_len])
+            trial_task[0,trial.s_starts[0]:trial.s_ends[-1]] = 1
             trial_y = trial.get_target()
+            trial_empty = np.zeros([1, trial.trial_len])
 
-            trial_arr = np.concatenate([trial_x, trial_y])
-            ax.imshow(trial_arr, aspect='auto', cmap='Blues', interpolation='none', vmin=-1, vmax=1)
+            trial_arr = np.concatenate([trial_task, trial_x, trial_empty, trial_y])
+            ax.imshow(trial_arr, aspect='auto', cmap='RdBu', interpolation='none', vmin=-1, vmax=1)
 
             # ax.imshow(trial_y, aspect='auto', cmap='Blues', alpha=1, interpolation='none')
             # ax.imshow(trial_x, aspect='auto', cmap='Oranges', alpha=.5, interpolation='none')
             ax.set_title(f'#{trial.n}: Task {trial.task_id}, {trial.s_ids}', fontsize=15)
+            ax.set(yticklabels=[])
         handles, labels = ax.get_legend_handles_labels()
         #fig.legend(handles, labels, loc='lower center')
         plt.show()

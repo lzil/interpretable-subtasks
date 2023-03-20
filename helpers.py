@@ -46,8 +46,8 @@ class TrialDataset(Dataset):
 
         task = self.data[idx]
         trial = {}
-        trial['x'] = task.get_x(20, x_noise=self.args.x_noise)
-        trial['y']  = task.get_y()
+        trial['x'] = task.get_task(self.args.n_tasks, x_noise=self.args.x_noise)
+        trial['y']  = task.get_target()
         trial['task'] = task
 
         return trial
@@ -73,7 +73,10 @@ def collater(samples):
 
 # creates datasets and dataloaders
 def create_loaders(dataset, args, split_test=True, test_size=1):
-    dset = load_rb(dataset)
+    data_config = load_rb(dataset)
+    dset = data_config['data']
+    config = data_config['config']
+    args.n_tasks = config['n_tasks']
     if split_test:
         # create both training and test sets
         cutoff = round(.9 * len(dset))
@@ -92,12 +95,13 @@ def create_loaders(dataset, args, split_test=True, test_size=1):
 
 def get_criteria(args):
     criteria = []
-    if args.loss == 'mse':
-        fn = nn.MSELoss(reduction='sum')
-    elif args.loss == 'bce':
-        fn = nn.BCEWithLogitsLoss(reduction='sum')
-    else:
-        raise NotImplementedError
+    for l in args.loss:
+        if l == 'mse':
+            fn = nn.MSELoss(reduction='sum')
+        elif l == 'bce':
+            fn = nn.BCEWithLogitsLoss(reduction='sum')
+        # else:
+        #     raise NotImplementedError
     # do this in a roundabout way due to truncated bptt
     def tbptt_fn(o, t, i, t_ix, single=False):
         # last dimension is number of timesteps

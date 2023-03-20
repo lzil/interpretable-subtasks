@@ -28,7 +28,6 @@ from trainer import Trainer
 
 def parse_args():
     parser = argparse.ArgumentParser(description='')
-    parser.add_argument('-S', type=int, default=None, help='number of input units/number of skills')
     parser.add_argument('-N', type=int, default=300, help='number of neurons in reservoir')
 
     parser.add_argument('--train_parts', type=str, nargs='+', default=[''])
@@ -64,11 +63,11 @@ def parse_args():
     parser.add_argument('--patience', type=int, default=4000, help='stop training if loss doesn\'t decrease. adam only')
     parser.add_argument('--l2_reg', type=float, default=0, help='amount of l2 regularization')
     # parser.add_argument('--s_rate', default=None, type=float, help='scheduler rate. dont use for no scheduler')
-    parser.add_argument('--loss', type=str, default='mse', choices=['mse', 'bce'])
+    parser.add_argument('--loss', type=str, nargs='+', default=['mse'], choices=['mse', 'bce', 'l1'])
 
     # adam lambdas
     parser.add_argument('--l1', type=float, default=1, help='weight of normal loss')
-    # parser.add_argument('--l2', type=float, default=1, help='weight of exponential loss')
+    parser.add_argument('--lambda2', type=float, default=1, help='weight of l1 loss for layer v')
 
     # seeds
     parser.add_argument('--seed', type=int, help='general purpose seed')
@@ -117,10 +116,6 @@ def adjust_args(args):
         args = update_config(args, config)
     dset_config = get_config(args.dataset, ctype='dset')
 
-    if args.S is None:
-        # args.S = dset_config['max_id'] + 1
-        # args.S = 22
-        pass
     if args.loss == 'bce':
         args.out_act = 'sigmoid'
 
