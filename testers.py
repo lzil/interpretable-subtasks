@@ -14,7 +14,7 @@ import sys
 from network import TwoStageRNN
 from utils import Bunch, load_rb, get_config
 
-from helpers import get_criteria, create_loaders
+from helpers import get_mse_loss, get_v_loss, create_loaders
 
 
 def load_model_path(path, config=None):
@@ -35,12 +35,13 @@ def test_model(net, config, n_tests=128):
     test_set, test_loader = create_loaders(config.dataset, config, split_test=False, test_size=n_tests)
     trials = next(iter(test_loader))
 
-    criteria = get_criteria(config)
+    mse_loss_fn = get_mse_loss(config)
+    v_loss_fn = get_v_loss(config)
 
     # pdb.set_trace()
 
     with torch.no_grad():
-        idxs = [t.n for t in trials['task']]
+        idxs = [t.n for t in trials['trialobj']]
         x = trials['x']
         y = trials['y']
 
@@ -56,25 +57,22 @@ def test_model(net, config, n_tests=128):
             # net_out = net(t=net_g, c=net_c)
             # net_out = net(net_in)
             outs.append(net_out)
-            vs.append(etc['v'])
+            vs.append(etc['v2'])
 
         # pdb.set_trace()
         vs = torch.stack(vs, dim=2)
-
         outs = torch.stack(outs, dim=2)
-        targets = y
 
         # pdb.set_trace()
         
         for k in range(len(x)):
-            # t = trials[k]
-            losses[k] += config.lambda2 * torch.mean(torch.abs(vs[k]))
-            for c in criteria:
-                losses[k] += c(outs[k], targets[k], i=trials['task'][k], t_ix=0, single=True).item()
+            losses[k] += mse_loss_fn(outs[k], y[k], i=trials['trialobj'][k], t_ix=0, single=True).item()
+
+        # pdb.set_trace()
 
         data = {
             'ixs': idxs,
-            'trials': trials['task'],
+            'trials': trials['trialobj'],
             'x': x,
             'y': y,
             'outs': outs,

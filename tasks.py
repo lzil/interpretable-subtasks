@@ -67,7 +67,26 @@ class TaskTrial:
         # assert len(s_starts) == len(s_ends)
 
 
-    def get_task(self, task_count=None, x_noise=0):
+    def get_sensory_data(self):
+        x = copy.deepcopy(self.sensory_data)
+        return x
+
+    def get_task_data(self, task_count=None):
+        if task_count is None:
+            task_count = self.n_tasks_init
+        x = np.zeros((task_count, self.trial_len))
+        x[self.task_id, self.s_starts[0]:self.s_ends[-1]] = 1
+        # noisy up/down corruption
+        # if x_noise != 0:
+        #     x = corrupt_x(x, x_noise)
+        return x
+
+    def get_target_data(self):
+        x = copy.deepcopy(self.target_data)
+        return x
+
+
+    def get_st_data(self, task_count=None, x_noise=0):
         if task_count is None:
             task_count = self.n_tasks_init
         x = np.zeros((self.sensory_dim+task_count, self.trial_len))
@@ -78,19 +97,11 @@ class TaskTrial:
             x = corrupt_x(x, x_noise)
         return x
 
-    def get_sensory_data(self):
-        x = copy.deepcopy(self.sensory_data)
-        return x
-
     def get_subtasks(self, subtask_count):
         x = np.zeros((subtask_count, self.trial_len))
         for i in range(self.s_ids):
             x[self.s_ids[i], self.s_starts[i]:self.s_ends[i]] = 1
         return x
-
-    def get_target(self):
-        return self.target_data
-
 
 # add noise to x
 def corrupt_x(x, x_noise):
@@ -104,13 +115,13 @@ def corrupt_x(x, x_noise):
 def draw_subtask_length(s_id):
     if s_id == 0:
         # copy sensory input to output
-        st_len = min(10 + np.random.exponential(5), 30)
+        st_len = min(20 + np.random.exponential(5), 30)
     elif s_id == 1:
         # story sensory input
         st_len = min(10 + np.random.exponential(5), 30)
     elif s_id == 2:
         # output stored memory
-        st_len = min(10 + np.random.exponential(5), 30)
+        st_len = min(20 + np.random.exponential(5), 30)
     elif s_id == 3:
         # flip memory
         st_len = 10
@@ -264,12 +275,12 @@ def get_task_args(args):
     targs = Bunch()
 
     if args.mode == 'tasks':
-        targs.trial_len = get_tval(tarr, 'len', 150, int)
+        targs.trial_len = get_tval(tarr, 'len', 200, int)
         targs.scale = get_tval(tarr, 'scale', 5, int)
 
     elif args.mode == 'trials':
-        targs.trial_len = get_tval(tarr, 'len', 150, int)
-        targs.n_trials = get_tval(tarr, 'n', 4000, int)
+        targs.trial_len = get_tval(tarr, 'len', 200, int)
+        targs.n_trials = get_tval(tarr, 'n', 6000, int)
 
     return targs
 
@@ -355,13 +366,13 @@ if __name__ == '__main__':
             fig_format.hide_frame(ax)
 
             trial = samples[i]
-            trial_x = trial.get_sensory_data()
             trial_task = np.zeros([1, trial.trial_len])
             trial_task[0,trial.s_starts[0]:trial.s_ends[-1]] = 1
-            trial_y = trial.get_target()
+            trial_sensory = trial.get_sensory_data()
             trial_empty = np.zeros([1, trial.trial_len])
-
-            trial_arr = np.concatenate([trial_task, trial_x, trial_empty, trial_y])
+            trial_target = trial.get_target_data()
+            
+            trial_arr = np.concatenate([trial_task, trial_sensory, trial_empty, trial_target])
             ax.imshow(trial_arr, aspect='auto', cmap='RdBu', interpolation='none', vmin=-1, vmax=1)
 
             # ax.imshow(trial_y, aspect='auto', cmap='Blues', alpha=1, interpolation='none')

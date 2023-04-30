@@ -10,11 +10,10 @@ import argparse
 import pdb
 import json
 
-from helpers import sigmoid
 from utils import load_rb, get_config, update_config
 from testers import load_model_path, test_model
 
-from skills import TaskTrial
+from tasks import TaskTrial
 
 import fig_format
 
@@ -32,6 +31,8 @@ parser.add_argument('-d', '--dataset', help='path to a dataset of trials')
 parser.add_argument('-a', '--test_all', action='store_true')
 parser.add_argument('-n', '--no_plot', action='store_true')
 parser.add_argument('-c', '--config', default=None, help='path to config file if custom')
+
+parser.add_argument('--plot_vs', action='store_true', help='plot vs instead of the outputs')
 
 # parser.add_argument('--no_rnn_fb', action='store_true')
 args = parser.parse_args()
@@ -58,11 +59,6 @@ if not args.no_plot:
 
     run_id = '/'.join(args.model.split('/')[-3:-1])
 
-    # pdb.set_trace()
-
-    # data = data[0]
-    # pdb.set_trace()
-
     fig, axes = plt.subplots(3,4,sharex=False, sharey=False, figsize=(12,8))
     for i, ax in enumerate(fig.axes):
         ix = data['ixs'][i]
@@ -80,30 +76,33 @@ if not args.no_plot:
         ax.axvline(x=0, color='dimgray', alpha = 1)
         ax.axhline(y=0, color='dimgray', alpha = 1)
         ax.grid(True, which='major', lw=1, color='lightgray', alpha=0.4)
+        
         # ax.spines['top'].set_visible(False)
         # ax.spines['right'].set_visible(False)
         # ax.spines['left'].set_visible(False)
         # ax.spines['bottom'].set_visible(False)
         fig_format.hide_frame(ax)
 
-        # config.S = net.args.S
-        # config.Z = net.args.Z
-        config.Z = y.shape[0]
-        colors = cm.cool(np.linspace(0, 1, config.Z))
-        # for j in range(0, config.S):
-        #     ax.plot(xr, x[j], color=colors[j], lw=1, ls='-', alpha=.5, label='x')
-        # for j in range(0, config.Z):
-        #     ax.plot(xr, y[j], color=colors[j], lw=1, ls='--', alpha=.5, label='y')
-        #     ax.plot(xr, z[j], color=colors[j], lw=2, ls='-', alpha=1, label='z')
+
+        if config.plot_vs:
+            colors = cm.cool(np.linspace(0, 1, 4))
+            colors = cm.hsv(np.linspace(0, 1, 5))
+            for j in range(0, 4):
+                # print(v.shape)
+                ax.plot(xr, v[j], color=colors[j], lw=1)
+        else:
+            ax.set_ylim([-1,1])
+            config.Z = y.shape[0]
+            colors = cm.cool(np.linspace(0, 1, config.Z))
+            for j in range(0, 2):
+                ax.plot(xr, x[j], color=colors[j], lw=1, ls='--', alpha=.5, label='x')
+            for j in range(0, 3):
+                ax.plot(xr, y[j], color=colors[j], lw=1, ls='-', alpha=.5, label='y')
+                ax.plot(xr, z[j], color=colors[j], lw=2, ls='-', alpha=1, label='z')
 
         ax.tick_params(axis='both', color='white', labelsize=8)
-        ax.set_title(f'trial {ix}, task {trial.task_id}, {trial.s_ids}, {trial.s_starts}, {trial.s_ends}, loss {np.round(float(loss), 2)}', size=8)
+        ax.set_title(f'trial {ix}, task {trial.task_id},\n{trial.s_ids},\n{trial.s_starts},\n{trial.s_ends},\nloss {np.round(float(loss), 2)}', size=8)
 
-
-        colors = cm.cool(np.linspace(0, 1, 5))
-        for j in range(0, 5):
-            # print(v.shape)
-            ax.plot(xr, v[j], color=colors[j], lw=1)
 
 
     fig.text(0.5, 0.04, 'timestep', ha='center', va='center', size=12)

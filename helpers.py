@@ -44,11 +44,11 @@ class TrialDataset(Dataset):
         if isinstance(idx, slice):
             return [self[ii] for ii in range(len(self))[idx]]
 
-        task = self.data[idx]
+        tasktrial = self.data[idx]
         trial = {}
-        trial['x'] = task.get_task(self.args.n_tasks, x_noise=self.args.x_noise)
-        trial['y']  = task.get_target()
-        trial['task'] = task
+        trial['x'] = tasktrial.get_st_data(self.args.n_tasks, x_noise=self.args.x_noise)
+        trial['y']  = tasktrial.get_target_data()
+        trial['trialobj'] = tasktrial
 
         return trial
 
@@ -92,18 +92,10 @@ def create_loaders(dataset, args, split_test=True, test_size=1):
         all_loader = DataLoader(all_set, batch_size=test_size, shuffle=True, collate_fn=collater, drop_last=True)
         return (all_set, all_loader)
 
-
-def get_criteria(args):
-    criteria = []
-    for l in args.loss:
-        if l == 'mse':
-            fn = nn.MSELoss(reduction='sum')
-        elif l == 'bce':
-            fn = nn.BCEWithLogitsLoss(reduction='sum')
-        # else:
-        #     raise NotImplementedError
+def get_mse_loss(args):
+    fn = nn.MSELoss(reduction='sum')
     # do this in a roundabout way due to truncated bptt
-    def tbptt_fn(o, t, i, t_ix, single=False):
+    def tbptt_mse(o, t, i, t_ix=None, single=False):
         # last dimension is number of timesteps
         # divide by batch size to avoid doing so logging and in test
         loss = 0.
@@ -119,9 +111,48 @@ def get_criteria(args):
                 t_adj = t[j,:,:length-t_ix]
                 o_adj = o[j,:,:length-t_ix]
                 loss += fn(o_adj, t_adj)# / length # order matters for bce
-        return args.l1 * loss
-    criteria.append(tbptt_fn)
-    return criteria
+        return args.lambda_mse * loss
+
+    return tbptt_mse
+
+def get_v_loss(args):
+    def v_loss_fn(vs):
+        loss = torch.sum(torch.abs(vs))
+        return args.lambda_vl1 * loss
+    return v_loss_fn
+
+
+# def get_criteria(args):
+
+#     criteria = []
+#     for l in args.loss:
+#         if l == 'mse':
+#             fn = nn.MSELoss(reduction='sum')
+#             # do this in a roundabout way due to truncated bptt
+#             def tbptt_mse(o, t, i, t_ix=None, single=False):
+#                 # last dimension is number of timesteps
+#                 # divide by batch size to avoid doing so logging and in test
+#                 loss = 0.
+#                 if single:
+#                     o = o.unsqueeze(0)
+#                     t = t.unsqueeze(0)
+#                     infos = [infos]
+#                 for j in range(len(t)):
+#                     length = infos[j].trial_len
+#                     if t_ix + t.shape[-1] <= length:
+#                         loss += fn(o[j], t[j])# / length
+#                     elif t_ix < length:
+#                         t_adj = t[j,:,:length-t_ix]
+#                         o_adj = o[j,:,:length-t_ix]
+#                         loss += fn(o_adj, t_adj)# / length # order matters for bce
+#                 return args.lambda_mse * loss
+#             criteria.append(tbptt_fn)
+#         elif l == 'l1':
+#             fn = 
+#         else:
+#             raise NotImplementedError
+    
+#     return criteria
 
 def get_activation(name):
     if name == 'exp':

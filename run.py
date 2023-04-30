@@ -20,15 +20,18 @@ import pandas as pd
 
 
 from utils import log_training, load_rb, get_config, update_config, load_config
-from helpers import get_optimizer, get_scheduler, get_criteria, create_loaders
+from helpers import get_optimizer, get_scheduler, create_loaders
 
-from skills import TaskTrial
+from tasks import TaskTrial
 
 from trainer import Trainer
 
 def parse_args():
     parser = argparse.ArgumentParser(description='')
-    parser.add_argument('-N', type=int, default=300, help='number of neurons in reservoir')
+    parser.add_argument('--N1', type=int, default=300, help='number of neurons in stage 1')
+    parser.add_argument('--N2', type=int, default=300, help='number of neurons in stage 2')
+    parser.add_argument('-V', type=int, default=6, help='dimensionality of intermediate layer')
+    parser.add_argument('-Z', type=int, default=3, help='output dimensionality')
 
     parser.add_argument('--train_parts', type=str, nargs='+', default=[''])
     parser.add_argument('-c', '--config', type=str, default=None, help='use args from config file')
@@ -38,18 +41,20 @@ def parse_args():
     parser.add_argument('--model_path', type=str, default=None, help='start training from certain model. superseded by below')
     parser.add_argument('--rnn_path', type=str, default=None, help='start training from certain reservoir representation')
     
+    # network options for intermediate layer
+    parser.add_argument('--temp_softmax_v', type=float, default=0, help='use softmax v, temperature for softmax v layer')
+    parser.add_argument('--temp_sigmoid_v', type=float, default=0, help='use sigmoid v, temperature for sigmoid v layer')
+
     # network arguments
     parser.add_argument('--x_noise', type=float, default=0, help='up/downnoise in the input')
     parser.add_argument('--rnn_noise', type=float, default=0, help='noise in RNN operations')
     parser.add_argument('--out_act', type=str, default='none', help='output activation at the very end of the network')
     parser.add_argument('--rnn_bias', action='store_true', help='bias term as part of recurrent connections, with J')
     parser.add_argument('--no_ff_bias', action='store_false', dest='ff_bias', help='bias in readout weights')
-    parser.add_argument('--no_fb', action='store_false', dest='rnn_fb', help='feedback from network output to input')
 
     # dataset arguments
-    parser.add_argument('-d', '--dataset', type=str, default='datasets/debug_l0.pkl', help='dataset to use')
+    parser.add_argument('-d', '--dataset', type=str, default='datasets/debug.pkl', help='dataset to use')
     parser.add_argument('--same_test', action='store_true', help='use entire dataset for both training and testing')
-    parser.add_argument('--full_len', action='store_true', help='use full length of command in training')
     
     # training arguments
     parser.add_argument('--optimizer', choices=['adam', 'sgd', 'rmsprop'], default='adam')
@@ -63,7 +68,9 @@ def parse_args():
     parser.add_argument('--patience', type=int, default=4000, help='stop training if loss doesn\'t decrease. adam only')
     parser.add_argument('--l2_reg', type=float, default=0, help='amount of l2 regularization')
     # parser.add_argument('--s_rate', default=None, type=float, help='scheduler rate. dont use for no scheduler')
-    parser.add_argument('--loss', type=str, nargs='+', default=['mse'], choices=['mse', 'bce', 'l1'])
+    # parser.add_argument('--loss', type=str, nargs='+', default=['mse'], choices=['mse', 'l1'])
+    parser.add_argument('--lambda_mse', type=float, default=1, help='weight of normal loss')
+    parser.add_argument('--lambda_vl1', type=float, default=0, help='coefficient of l1 reg for intermediate layer v')
 
     # adam lambdas
     parser.add_argument('--l1', type=float, default=1, help='weight of normal loss')
@@ -114,10 +121,7 @@ def adjust_args(args):
     if args.config is not None:
         config = load_config(args.config)
         args = update_config(args, config)
-    dset_config = get_config(args.dataset, ctype='dset')
-
-    if args.loss == 'bce':
-        args.out_act = 'sigmoid'
+    # dset_config = get_config(args.dataset, ctype='dset')
 
     # setting seeds
     if args.rnn_seed is None:

@@ -25,10 +25,16 @@ class TorchSeed:
 
 
 DEFAULT_ARGS = {
+    'N1': 200,
+    'N2': 200,
+    'T': 30,
+    'V': 5,
+    'Z': 3,
 
     'rnn_burn_steps': 100,
     'rnn_noise': 0,
 
+    'use_softmax_v': False,
     'ff_bias': False,
     'rnn_bias': False,
     'out_act': 'none',
@@ -56,46 +62,51 @@ class TwoStageRNN(nn.Module):
         #     self.args.network_seed = np.random.randint(1e6)
 
         self.stage1_params = {
-            'N': 100,
-            'D_in': 22,
-            'D_out': 5,
-            'tau': 10
+            'N': self.args.N1,
+            'D_in': self.args.T + 2,
+            'D_out': self.args.V,
+            'tau': 10,
+            'rnn_seed': None,
+            'rnn_x_seed': None
         }
-        self.stage1 = RNN(self.stage1_params)
         self.stage2_params = {
-            'N': 200,
-            'D_in': 7,
-            'D_out': 3,
-            'tau': 5
+            'N': self.args.N2,
+            'D_in': self.args.V + 2,
+            'D_out': self.args.Z,
+            'tau': 5,
+            'rnn_seed': None,
+            'rnn_x_seed': None
         }
+
+        self.stage1 = RNN(self.stage1_params)
         self.stage2 = RNN(self.stage2_params)
 
         if self.args.model_path is not None:
             state_dict = torch.load(self.args.model_path)
             self.load_state_dict(state_dict)
 
-    def forward(self, inp=None, extras=False):
+    def forward(self, inp, extras=False):
+        sensory_inp = inp[:,:2]
+        task_inp = inp[:,2:]
 
-        # pdb.set_trace()
-        t = inp[:, 2:]
-        s = inp[:, :2]
+        inp1 = torch.cat((task_inp, sensory_inp), dim=1)
+        v, etc1 = self.stage1(inp1, extras=True)
+        if self.args.temp_sigmoid_v > 0:
+            v2 = v * self.args.temp_sigmoid_v
+            v2 = torch.sigmoid(v2)
+        elif self.args.temp_softmax_v > 0:
+            v2 = v * self.args.temp_softmax_v
+            v2 = torch.softmax(v2, dim=0)
+        else:
+            v2 = v
+        
+        inp2 = torch.cat((v2, sensory_inp), dim=1)
+        z, etc2 = self.stage2(inp2, extras=True)
 
-        inp1 = torch.cat((t, s), dim=1)
-        # pdb.set_trace()
         if extras:
-            v, etc1 = self.stage1(inp, extras=True)
-            # pdb.set_trace()
-            v2 = torch.softmax(v, dim=0)
-            inp2 = torch.cat((v2, s), dim=1)
-            z, etc2 = self.stage2(inp2, extras=True)
-            etc = {'u': inp, 'v': v, 'v2': v2, 'x1': etc1['x'], 'x2': etc2['x']}
+            etc = {'u': inp1, 'v': v, 'v2': v2, 'x1': etc1['x'], 'x2': etc2['x']}
             return z, etc
         else:
-            v = self.stage1(inp1, extras=False)
-            # inp2 = torch.cat((v, s), dim=1)
-            v2 = torch.softmax(v, dim=0)
-            inp2 = torch.cat((v2, s), dim=1)
-            z = self.stage2(inp2, extras=False)
             return z
 
     def reset(self, *args, **kwargs):
@@ -132,8 +143,8 @@ class RNN(nn.Module):
         # seeds for each component of the network
         if self.args.rnn_seed is None:
             self.args.rnn_seed = np.random.randint(1e6)
-        if self.args.rnn_x_seed is None:
-            self.args.rnn_x_seed = np.random.randint(1e6)
+        # if self.args.rnn_x_seed is None:
+        #     self.args.rnn_x_seed = np.random.randint(1e6)
 
         # layers use the same seed because no resevoirs here
         with TorchSeed(self.args.rnn_seed):
@@ -200,8 +211,11 @@ class RNN(nn.Module):
         - else: ERROR
         '''
         if rnn_state is None:
-            # load specified hidden state from seed
-            rnn_state = self.args.rnn_x_seed
+            # load specified hidden state from seed, or generate randomly
+            if self.args.rnn_x_seed is None:
+                rnn_state = np.random.randint(1e6)
+            else:
+                rnn_state = self.args.rnn_x_seed
 
         if type(rnn_state) is np.ndarray:
             # load an actual particular hidden state

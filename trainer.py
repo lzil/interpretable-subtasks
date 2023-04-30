@@ -22,7 +22,7 @@ import pandas as pd
 from network import TwoStageRNN
 
 from utils import log_training, load_rb, get_config, update_config
-from helpers import get_optimizer, get_scheduler, get_criteria, create_loaders, collater
+from helpers import get_optimizer, get_scheduler, get_mse_loss, get_v_loss, create_loaders, collater
 
 class Trainer:
     def __init__(self, args):
@@ -35,6 +35,8 @@ class Trainer:
         self.test_set, self.test_loader = tests
         logging.info(f'Using dataset {self.args.dataset}')
 
+        # get number of tasks from the dataset before initializing the net
+        self.args.T = self.train_set[0]['trialobj'].n_tasks_init
         self.net = TwoStageRNN(self.args)
 
         # getting number of elements of every parameter
@@ -59,9 +61,9 @@ class Trainer:
         for k in self.not_train_params:
             logging.info(f'  {k}')
 
-        self.criteria = get_criteria(self.args)
+        self.mse_loss_fn = get_mse_loss(self.args)
+        self.v_loss_fn = get_v_loss(self.args)
         self.optimizer = get_optimizer(self.args, self.train_params)
-        # self.scheduler = get_scheduler(self.args, self.optimizer)
 
         # pdb.set_trace()
         
@@ -109,10 +111,11 @@ class Trainer:
     def run_trial(self, x, y, trial, training=True, extras=False):
         self.net.reset(self.args.rnn_x_init, device=self.device)
         trial_loss = 0.
-        k_loss = 0.
         outs = []
         us = []
         vs = []
+        mse_loss = 0.
+        v_loss = 0.
         # setting up k for t-BPTT
         if training and self.args.k != 0:
             k = self.args.k
@@ -124,33 +127,36 @@ class Trainer:
             net_out, etc = self.net(inp=net_s, extras=True)
             outs.append(net_out)
             us.append(etc['u'])
-            vs.append(etc['v'])
+            vs.append(etc['v2'])
             # t-BPTT with parameter k
             if (j+1) % k == 0:
                 # the first timestep with which to do BPTT
                 k_outs = torch.stack(outs[-k:], dim=2)
                 k_targets = y[:,:,j+1-k:j+1]
-                k_vs = torch.stack(vs[-k:], dim=2)
+                k_vs = torch.stack(vs[-k:], dim=2).mean(dim=2)
+
+                
+                k_mse_loss = self.mse_loss_fn(o=k_outs, t=k_targets, i=trial, t_ix=j+1-k)
+                k_v_loss = self.v_loss_fn(vs=k_vs)
 
                 # pdb.set_trace()
 
-                # v_loss = self.args.lambda2 * torch.mean(torch.abs(k_vs))
-                v_loss = 0
-
-                for c in self.criteria:
-                    k_loss += c(k_outs, k_targets, i=trial, t_ix=j+1-k)
-
-                loss = k_loss + v_loss
-                # print(k_loss.detach(), v_loss.detach())
+                loss = k_mse_loss + k_v_loss
                 trial_loss += loss.detach().item()
                 if training:
                     loss.backward()
                 loss = 0.
+                # add to record of different losses
+                mse_loss += k_mse_loss.detach().item()
+                v_loss += k_v_loss.detach().item()
+
                 # TODO fix this
                 self.net.stage1.x = self.net.stage1.x.detach()
                 self.net.stage2.x = self.net.stage2.x.detach()
 
         trial_loss /= x.shape[0]
+        mse_loss /= x.shape[0]
+        v_loss /= x.shape[0]
 
         if extras:
             net_us = torch.stack(us, dim=2)
@@ -158,6 +164,8 @@ class Trainer:
             etc = {
                 'outs': net_outs,
                 'us': net_us,
+                'mse_loss': mse_loss,
+                'v_loss': v_loss
             }
             return trial_loss, etc
         return trial_loss
@@ -174,7 +182,9 @@ class Trainer:
             'ins': x,
             'goals': y,
             'us': etc['us'].detach(),
-            'outs': etc['outs'].detach()
+            'outs': etc['outs'].detach(),
+            'mse_loss': etc['mse_loss'],
+            'v_loss': etc['v_loss']
         }
         return trial_loss, etc
 
@@ -185,14 +195,15 @@ class Trainer:
             x = trial['x']
             y = trial['y']
             x, y = x.to(self.device), y.to(self.device)
-            loss, etc = self.run_trial(x, y, trial['task'], training=False, extras=True)
+            loss, etc = self.run_trial(x, y, trial['trialobj'], training=False, extras=True)
 
-            # pdb.set_trace()
         etc = {
             'ins': x,
             'goals': y,
             'us': etc['us'].detach(),
-            'outs': etc['outs'].detach()
+            'outs': etc['outs'].detach(),
+            'mse_loss': etc['mse_loss'],
+            'v_loss': etc['v_loss']
         }
 
         return loss, etc
@@ -214,7 +225,7 @@ class Trainer:
                 y = trial['y']
 
                 x, y = x.to(self.device), y.to(self.device)
-                iter_loss, etc = self.train_iteration(x, y, trial['task'], ix_callback=ix_callback)
+                iter_loss, etc = self.train_iteration(x, y, trial['trialobj'], ix_callback=ix_callback)
 
                 if iter_loss == -1:
                     logging.info(f'iteration {ix}: is nan. ending')
@@ -230,7 +241,9 @@ class Trainer:
                     log_arr = [
                         f'*{ix}',
                         f'train {train_loss:.3f}',
-                        f'test {test_loss:.3f}'
+                        f'test {test_loss:.3f}',
+                        f'!mse {etc["mse_loss"]:.3f}',
+                        f'!v {etc["v_loss"]:.3f}'
                     ]
 
                     log_str = '\t| '.join(log_arr)
